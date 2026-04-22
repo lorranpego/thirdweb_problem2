@@ -5,7 +5,7 @@ const getRoleId = async (roleName) => {
     const queryParams = [roleName];
     const { rows } = await processDBRequest({ query, queryParams });
     return rows[0].id;
-};
+}
 
 const findAllStudents = async (payload) => {
     const { name, className, section, roll } = payload;
@@ -37,27 +37,18 @@ const findAllStudents = async (payload) => {
         queryParams.push(roll);
     }
 
-    query += " ORDER BY t1.id";
+    query += ' ORDER BY t1.id';
 
     const { rows } = await processDBRequest({ query, queryParams });
     return rows;
-};
+}
 
 const addOrUpdateStudent = async (payload) => {
-    const query = "SELECT * FROM student_add_update($1::jsonb)";
-    const queryParams = [JSON.stringify(payload)];
+    const query = "SELECT * FROM student_add_update($1)";
+    const queryParams = [payload];
     const { rows } = await processDBRequest({ query, queryParams });
-    const row = rows[0];
-    if (!row) {
-        return { userId: null, status: false, message: "Empty result from student_add_update" };
-    }
-    return {
-        userId: row.userId ?? row.userid,
-        status: row.status,
-        message: row.message,
-        description: row.description,
-    };
-};
+    return rows[0];
+}
 
 const findStudentDetail = async (id) => {
     const query = `
@@ -90,7 +81,7 @@ const findStudentDetail = async (id) => {
     const queryParams = [id];
     const { rows } = await processDBRequest({ query, queryParams });
     return rows[0];
-};
+}
 
 const findStudentToSetStatus = async ({ userId, reviewerId, status }) => {
     const now = new Date();
@@ -104,15 +95,21 @@ const findStudentToSetStatus = async ({ userId, reviewerId, status }) => {
     `;
     const queryParams = [status, now, reviewerId, userId];
     const { rowCount } = await processDBRequest({ query, queryParams });
-    return rowCount;
-};
+    return rowCount
+}
 
-const removeStudentById = async (userId) => {
-    const query = "DELETE FROM users WHERE id = $1";
-    const queryParams = [userId];
-    const { rowCount } = await processDBRequest({ query, queryParams });
-    return rowCount;
-};
+const findStudentToUpdate = async (paylaod) => {
+    const { basicDetails: { name, email }, id } = paylaod;
+    const currentDate = new Date();
+    const query = `
+        UPDATE users
+        SET name = $1, email = $2, updated_dt = $3
+        WHERE id = $4;
+    `;
+    const queryParams = [name, email, currentDate, id];
+    const { rows } = await processDBRequest({ query, queryParams });
+    return rows;
+}
 
 module.exports = {
     getRoleId,
@@ -120,5 +117,5 @@ module.exports = {
     addOrUpdateStudent,
     findStudentDetail,
     findStudentToSetStatus,
-    removeStudentById,
+    findStudentToUpdate
 };
