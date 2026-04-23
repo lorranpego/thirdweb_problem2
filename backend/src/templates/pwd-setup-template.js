@@ -1,6 +1,5 @@
 const pwdSetupTemplate = (link) => {
-    return (
-        `
+  return `
         <html>
             <head>
                 <style>
@@ -29,8 +28,7 @@ const pwdSetupTemplate = (link) => {
                 <a href=${link}>${link}</a>
             </body>
         </html>
-        `
-    );
-}
+        `;
+};
 
 module.exports = { pwdSetupTemplate };

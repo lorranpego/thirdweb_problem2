@@ -1,7 +1,7 @@
 const { processDBRequest } = require("../../utils");
 
 const findUserById = async (id) => {
-    const query = `
+  const query = `
         SELECT
             id,
             email,
@@ -11,10 +11,9 @@ const findUserById = async (id) => {
             is_email_verified
         FROM users where id = $1
     `;
-    const queryParams = [id];
-    const { rows } = await processDBRequest({ query, queryParams });
-    return rows[0];
-}
-
+  const queryParams = [id];
+  const { rows } = await processDBRequest({ query, queryParams });
+  return rows[0];
+};
 
 module.exports = { findUserById };
