@@ -1,25 +1,31 @@
 const { ApiError, sendAccountVerificationEmail } = require("../../utils");
 const { logger } = require("../../utils/logger");
 const {
-  findStudentById,
   findAllStudents,
   findStudentDetail,
   findStudentToSetStatus,
   addOrUpdateStudent,
   removeStudentById,
 } = require("./students-repository");
+const { findUserById } = require("../../shared/repository");
 
-const ensureStudentExists = async (id) => {
-  const row = await findStudentById(id);
-  if (!row) {
+const checkStudentId = async (id) => {
+  const isStudentFound = await findUserById(id);
+  if (!isStudentFound) {
     throw new ApiError(404, "Student not found");
   }
 };
 
-const getAllStudents = async (filters) => findAllStudents(filters);
+const getAllStudents = async (payload) => {
+  const students = await findAllStudents(payload);
+  if (students.length <= 0) {
+    throw new ApiError(404, "Students not found");
+  }
+  return students;
+};
 
 const getStudentDetail = async (id) => {
-  await ensureStudentExists(id);
+  await checkStudentId(id);
   const student = await findStudentDetail(id);
   if (!student) {
     throw new ApiError(404, "Student not found");
@@ -32,11 +38,15 @@ const addNewStudent = async (payload) => {
     "Student added and verification email sent successfully.";
   const ADD_STUDENT_AND_BUT_EMAIL_SEND_FAIL =
     "Student added, but failed to send verification email.";
+
   try {
     const result = await addOrUpdateStudent(payload);
-    if (!result.status) {
-      const detail = result.description ? `: ${result.description}` : "";
-      throw new ApiError(400, `${result.message}${detail}`);
+    if (!result?.status) {
+      const detail = result?.description ? `: ${result.description}` : "";
+      throw new ApiError(
+        500,
+        `${result?.message || "Unable to add student"}${detail}`,
+      );
     }
 
     try {
@@ -45,7 +55,12 @@ const addNewStudent = async (payload) => {
         userEmail: payload.email,
       });
       return { message: ADD_STUDENT_AND_EMAIL_SEND_SUCCESS };
-    } catch {
+    } catch (error) {
+      logger.warn("student_verification_email_failed", {
+        userId: result.userId,
+        email: payload.email,
+        errorMessage: error.message,
+      });
       return { message: ADD_STUDENT_AND_BUT_EMAIL_SEND_FAIL };
     }
   } catch (error) {
@@ -53,7 +68,7 @@ const addNewStudent = async (payload) => {
       throw error;
     }
     logger.error("add_new_student_failed", {
-      message: error.message,
+      errorMessage: error.message,
       stack: error.stack,
     });
     throw new ApiError(500, "Unable to add student");
@@ -61,44 +76,32 @@ const addNewStudent = async (payload) => {
 };
 
 const updateStudent = async (payload) => {
-  const { userId } = payload;
-  if (userId == null) {
-    throw new ApiError(400, "Student id is required");
-  }
-  await ensureStudentExists(userId);
-
   const result = await addOrUpdateStudent(payload);
   if (!result.status) {
-    const detail = result.description ? `: ${result.description}` : "";
-    throw new ApiError(400, `${result.message}${detail}`);
+    throw new ApiError(500, result.message);
   }
-
   return { message: result.message };
 };
 
 const setStudentStatus = async ({ userId, reviewerId, status }) => {
-  await ensureStudentExists(userId);
-
+  await checkStudentId(userId);
   const affectedRow = await findStudentToSetStatus({
     userId,
     reviewerId,
     status,
   });
   if (affectedRow <= 0) {
-    throw new ApiError(500, "Unable to update student status");
+    throw new ApiError(500, "Unable to disable student");
   }
-
   return { message: "Student status changed successfully" };
 };
 
 const deleteStudent = async ({ userId }) => {
-  await ensureStudentExists(userId);
-
+  await checkStudentId(userId);
   const affectedRow = await removeStudentById(userId);
   if (affectedRow <= 0) {
     throw new ApiError(500, "Unable to delete student");
   }
-
   return { message: "Student deleted successfully" };
 };
 

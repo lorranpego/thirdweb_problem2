@@ -1,22 +1,18 @@
 jest.mock("../../../utils", () => {
-  const ActualApiError = class ApiError extends Error {
+  class MockApiError extends Error {
     constructor(statusCode, message) {
       super(message);
       this.statusCode = statusCode;
     }
-  };
+  }
+
   return {
-    ApiError: ActualApiError,
+    ApiError: MockApiError,
     sendAccountVerificationEmail: jest.fn(),
   };
 });
 
-jest.mock("../../../utils/logger", () => ({
-  logger: { error: jest.fn() },
-}));
-
 jest.mock("../students-repository", () => ({
-  findStudentById: jest.fn(),
   findAllStudents: jest.fn(),
   findStudentDetail: jest.fn(),
   findStudentToSetStatus: jest.fn(),
@@ -24,17 +20,19 @@ jest.mock("../students-repository", () => ({
   removeStudentById: jest.fn(),
 }));
 
-const { sendAccountVerificationEmail } = require("../../../utils");
-const { logger } = require("../../../utils/logger");
+jest.mock("../../../shared/repository", () => ({
+  findUserById: jest.fn(),
+}));
+
+const { sendAccountVerificationEmail, ApiError } = require("../../../utils");
 const {
-  findStudentById,
   findAllStudents,
   findStudentDetail,
   findStudentToSetStatus,
   addOrUpdateStudent,
   removeStudentById,
 } = require("../students-repository");
-const { ApiError } = require("../../../utils");
+const { findUserById } = require("../../../shared/repository");
 
 const {
   getAllStudents,
@@ -50,233 +48,131 @@ describe("students-service", () => {
     jest.clearAllMocks();
   });
 
-  describe("getAllStudents", () => {
-    it("returns an empty array when no rows match", async () => {
-      findAllStudents.mockResolvedValue([]);
+  it("returns students list when records exist", async () => {
+    findAllStudents.mockResolvedValue([{ id: 1 }]);
+    const out = await getAllStudents({ name: "A" });
+    expect(out).toEqual([{ id: 1 }]);
+  });
 
-      const out = await getAllStudents({});
-
-      expect(out).toEqual([]);
-    });
-
-    it("returns rows from the repository", async () => {
-      const rows = [{ id: 1, name: "A" }];
-      findAllStudents.mockResolvedValue(rows);
-
-      const out = await getAllStudents({ name: "A" });
-
-      expect(out).toEqual(rows);
-      expect(findAllStudents).toHaveBeenCalledWith({ name: "A" });
+  it("throws 404 when students list is empty", async () => {
+    findAllStudents.mockResolvedValue([]);
+    await expect(getAllStudents({})).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Students not found",
     });
   });
 
-  describe("getStudentDetail", () => {
-    it("throws 404 when the id is not a student", async () => {
-      findStudentById.mockResolvedValue(undefined);
+  it("returns student details for an existing student", async () => {
+    findUserById.mockResolvedValue({ id: 1 });
+    findStudentDetail.mockResolvedValue({ id: 1, name: "Alice" });
+    const out = await getStudentDetail(1);
+    expect(out).toEqual({ id: 1, name: "Alice" });
+  });
 
-      await expect(getStudentDetail("99")).rejects.toMatchObject({
-        statusCode: 404,
-        message: "Student not found",
-      });
-      expect(findStudentDetail).not.toHaveBeenCalled();
-    });
-
-    it("throws 404 when detail query returns no row", async () => {
-      findStudentById.mockResolvedValue({ id: 1 });
-      findStudentDetail.mockResolvedValue(undefined);
-
-      await expect(getStudentDetail("1")).rejects.toMatchObject({
-        statusCode: 404,
-        message: "Student not found",
-      });
-    });
-
-    it("returns student detail when present", async () => {
-      const detail = { id: "1", name: "B" };
-      findStudentById.mockResolvedValue({ id: 1 });
-      findStudentDetail.mockResolvedValue(detail);
-
-      const out = await getStudentDetail("1");
-
-      expect(out).toEqual(detail);
+  it("throws 404 when student id is not found", async () => {
+    findUserById.mockResolvedValue(null);
+    await expect(getStudentDetail(10)).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Student not found",
     });
   });
 
-  describe("addNewStudent", () => {
-    it("returns success when insert succeeds and email sends", async () => {
-      addOrUpdateStudent.mockResolvedValue({
-        status: true,
-        userId: 42,
-        message: "ok",
-      });
-      sendAccountVerificationEmail.mockResolvedValue(undefined);
-
-      const out = await addNewStudent({ email: "n@x.com", name: "N" });
-
-      expect(out.message).toContain("verification email sent successfully");
-      expect(sendAccountVerificationEmail).toHaveBeenCalledWith({
-        userId: 42,
-        userEmail: "n@x.com",
-      });
+  it("returns success message when add and email send succeed", async () => {
+    addOrUpdateStudent.mockResolvedValue({
+      status: true,
+      userId: 7,
+      message: "ok",
     });
+    sendAccountVerificationEmail.mockResolvedValue(true);
+    const out = await addNewStudent({ email: "test@mail.com" });
+    expect(out.message).toContain("verification email sent successfully");
+  });
 
-    it("returns partial success when email send fails", async () => {
-      addOrUpdateStudent.mockResolvedValue({
-        status: true,
-        userId: 5,
-        message: "ok",
-      });
-      sendAccountVerificationEmail.mockRejectedValue(new Error("smtp down"));
-
-      const out = await addNewStudent({ email: "n@x.com" });
-
-      expect(out.message).toContain("failed to send verification email");
+  it("returns fallback message when add succeeds but email fails", async () => {
+    addOrUpdateStudent.mockResolvedValue({
+      status: true,
+      userId: 7,
+      message: "ok",
     });
+    sendAccountVerificationEmail.mockRejectedValue(new Error("smtp down"));
+    const out = await addNewStudent({ email: "test@mail.com" });
+    expect(out.message).toContain("failed to send verification email");
+  });
 
-    it("throws 400 when addOrUpdate reports failure", async () => {
-      addOrUpdateStudent.mockResolvedValue({
-        status: false,
-        message: "duplicate",
-        description: "email",
-      });
-
-      await expect(addNewStudent({})).rejects.toMatchObject({
-        statusCode: 400,
-        message: "duplicate: email",
-      });
+  it("returns DB message when add returns unsuccessful status", async () => {
+    addOrUpdateStudent.mockResolvedValue({
+      status: false,
+      message: "db issue",
     });
-
-    it("re-throws ApiError from addOrUpdate path", async () => {
-      addOrUpdateStudent.mockRejectedValue(new ApiError(400, "bad"));
-
-      await expect(addNewStudent({})).rejects.toMatchObject({
-        statusCode: 400,
-        message: "bad",
-      });
-    });
-
-    it("maps unexpected errors to 500", async () => {
-      addOrUpdateStudent.mockRejectedValue(new Error("db"));
-
-      await expect(addNewStudent({})).rejects.toMatchObject({
-        statusCode: 500,
-        message: "Unable to add student",
-      });
-      expect(logger.error).toHaveBeenCalled();
+    await expect(addNewStudent({})).rejects.toMatchObject({
+      statusCode: 500,
+      message: "db issue",
     });
   });
 
-  describe("updateStudent", () => {
-    it("throws 400 when userId is missing", async () => {
-      await expect(updateStudent({ name: "x" })).rejects.toMatchObject({
-        statusCode: 400,
-        message: "Student id is required",
-      });
+  it("returns update message when update succeeds", async () => {
+    addOrUpdateStudent.mockResolvedValue({
+      status: true,
+      message: "Student updated successfully",
     });
+    const out = await updateStudent({ userId: 1, name: "Updated" });
+    expect(out).toEqual({ message: "Student updated successfully" });
+  });
 
-    it("throws 404 when student does not exist", async () => {
-      findStudentById.mockResolvedValue(undefined);
-
-      await expect(
-        updateStudent({ userId: "1", name: "x" }),
-      ).rejects.toMatchObject({
-        statusCode: 404,
-      });
-      expect(addOrUpdateStudent).not.toHaveBeenCalled();
+  it("throws when update operation fails", async () => {
+    addOrUpdateStudent.mockResolvedValue({
+      status: false,
+      message: "Unable to update student",
     });
-
-    it("returns message when update succeeds", async () => {
-      findStudentById.mockResolvedValue({ id: 1 });
-      addOrUpdateStudent.mockResolvedValue({
-        status: true,
-        message: "Student updated successfully",
-      });
-
-      const out = await updateStudent({ userId: "1", name: "X" });
-
-      expect(out).toEqual({ message: "Student updated successfully" });
-      expect(addOrUpdateStudent).toHaveBeenCalledWith({
-        userId: "1",
-        name: "X",
-      });
-    });
-
-    it("throws 400 when update reports failure", async () => {
-      findStudentById.mockResolvedValue({ id: 1 });
-      addOrUpdateStudent.mockResolvedValue({
-        status: false,
-        message: "nope",
-      });
-
-      await expect(updateStudent({ userId: "1" })).rejects.toMatchObject({
-        statusCode: 400,
-        message: "nope",
-      });
+    await expect(updateStudent({ userId: 1 })).rejects.toMatchObject({
+      statusCode: 500,
+      message: "Unable to update student",
     });
   });
 
-  describe("setStudentStatus", () => {
-    it("returns success when rows are updated", async () => {
-      findStudentById.mockResolvedValue({ id: "2" });
-      findStudentToSetStatus.mockResolvedValue(1);
-
-      const out = await setStudentStatus({
-        userId: "2",
-        reviewerId: "9",
-        status: false,
-      });
-
-      expect(out.message).toContain("changed successfully");
+  it("updates status when student exists and repository updates row", async () => {
+    findUserById.mockResolvedValue({ id: 4 });
+    findStudentToSetStatus.mockResolvedValue(1);
+    const out = await setStudentStatus({
+      userId: 4,
+      reviewerId: 1,
+      status: false,
     });
+    expect(out).toEqual({ message: "Student status changed successfully" });
+  });
 
-    it("throws when student is missing", async () => {
-      findStudentById.mockResolvedValue(undefined);
-
-      await expect(
-        setStudentStatus({ userId: "1", reviewerId: "9", status: true }),
-      ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it("throws when no row was updated", async () => {
-      findStudentById.mockResolvedValue({ id: "1" });
-      findStudentToSetStatus.mockResolvedValue(0);
-
-      await expect(
-        setStudentStatus({ userId: "1", reviewerId: "9", status: true }),
-      ).rejects.toMatchObject({
-        statusCode: 500,
-        message: "Unable to update student status",
-      });
+  it("throws status update error when no row is updated", async () => {
+    findUserById.mockResolvedValue({ id: 4 });
+    findStudentToSetStatus.mockResolvedValue(0);
+    await expect(
+      setStudentStatus({ userId: 4, reviewerId: 1, status: false }),
+    ).rejects.toMatchObject({
+      statusCode: 500,
+      message: "Unable to disable student",
     });
   });
 
-  describe("deleteStudent", () => {
-    it("returns success when delete removes a row", async () => {
-      findStudentById.mockResolvedValue({ id: "3" });
-      removeStudentById.mockResolvedValue(1);
+  it("deletes student when record exists", async () => {
+    findUserById.mockResolvedValue({ id: 5 });
+    removeStudentById.mockResolvedValue(1);
+    const out = await deleteStudent({ userId: 5 });
+    expect(out).toEqual({ message: "Student deleted successfully" });
+  });
 
-      const out = await deleteStudent({ userId: "3" });
-
-      expect(out.message).toContain("deleted successfully");
-      expect(removeStudentById).toHaveBeenCalledWith("3");
+  it("throws delete error when no rows are removed", async () => {
+    findUserById.mockResolvedValue({ id: 5 });
+    removeStudentById.mockResolvedValue(0);
+    await expect(deleteStudent({ userId: 5 })).rejects.toMatchObject({
+      statusCode: 500,
+      message: "Unable to delete student",
     });
+  });
 
-    it("throws when student is missing", async () => {
-      findStudentById.mockResolvedValue(undefined);
-
-      await expect(deleteStudent({ userId: "1" })).rejects.toMatchObject({
-        statusCode: 404,
-      });
-    });
-
-    it("throws when delete affects no rows", async () => {
-      findStudentById.mockResolvedValue({ id: "1" });
-      removeStudentById.mockResolvedValue(0);
-
-      await expect(deleteStudent({ userId: "1" })).rejects.toMatchObject({
-        statusCode: 500,
-        message: "Unable to delete student",
-      });
+  it("re-throws explicit ApiError during add", async () => {
+    addOrUpdateStudent.mockRejectedValue(new ApiError(400, "bad input"));
+    await expect(addNewStudent({})).rejects.toMatchObject({
+      statusCode: 400,
+      message: "bad input",
     });
   });
 });

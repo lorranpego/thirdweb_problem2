@@ -1,22 +1,10 @@
 const { processDBRequest } = require("../../utils");
 
-const STUDENT_ROLE_ID = 3;
-
 const getRoleId = async (roleName) => {
   const query = "SELECT id FROM roles WHERE name ILIKE $1";
   const queryParams = [roleName];
   const { rows } = await processDBRequest({ query, queryParams });
   return rows[0]?.id;
-};
-
-const findStudentById = async (id) => {
-  const query = `
-        SELECT u.id, u.email, u.name, u.role_id, u.is_active AS "isActive"
-        FROM users u
-        WHERE u.id = $1 AND u.role_id = $2`;
-  const queryParams = [id, STUDENT_ROLE_ID];
-  const { rows } = await processDBRequest({ query, queryParams });
-  return rows[0];
 };
 
 const findAllStudents = async (payload) => {
@@ -30,11 +18,11 @@ const findAllStudents = async (payload) => {
             t1.is_active AS "systemAccess"
         FROM users t1
         LEFT JOIN user_profiles t3 ON t1.id = t3.user_id
-        WHERE t1.role_id = ${STUDENT_ROLE_ID}`;
+        WHERE t1.role_id = 3`;
   const queryParams = [];
   if (name) {
-    query += ` AND t1.name ILIKE $${queryParams.length + 1}`;
-    queryParams.push(`%${name}%`);
+    query += ` AND t1.name = $${queryParams.length + 1}`;
+    queryParams.push(name);
   }
   if (className) {
     query += ` AND t3.class_name = $${queryParams.length + 1}`;
@@ -44,9 +32,9 @@ const findAllStudents = async (payload) => {
     query += ` AND t3.section_name = $${queryParams.length + 1}`;
     queryParams.push(section);
   }
-  if (roll !== undefined && roll !== null && roll !== "") {
-    query += ` AND t3.roll::text = $${queryParams.length + 1}`;
-    queryParams.push(String(roll));
+  if (roll) {
+    query += ` AND t3.roll = $${queryParams.length + 1}`;
+    queryParams.push(roll);
   }
 
   query += " ORDER BY t1.id";
@@ -57,22 +45,9 @@ const findAllStudents = async (payload) => {
 
 const addOrUpdateStudent = async (payload) => {
   const query = "SELECT * FROM student_add_update($1::jsonb)";
-  const queryParams = [JSON.stringify(payload)];
+  const queryParams = [payload];
   const { rows } = await processDBRequest({ query, queryParams });
-  const row = rows[0];
-  if (!row) {
-    return {
-      userId: null,
-      status: false,
-      message: "Empty result from student_add_update",
-    };
-  }
-  return {
-    userId: row.userId ?? row.userid,
-    status: row.status,
-    message: row.message,
-    description: row.description,
-  };
+  return rows[0];
 };
 
 const findStudentDetail = async (id) => {
@@ -102,8 +77,8 @@ const findStudentDetail = async (id) => {
         FROM users u
         LEFT JOIN user_profiles p ON u.id = p.user_id
         LEFT JOIN users r ON u.reporter_id = r.id
-        WHERE u.id = $1 AND u.role_id = $2`;
-  const queryParams = [id, STUDENT_ROLE_ID];
+        WHERE u.id = $1`;
+  const queryParams = [id];
   const { rows } = await processDBRequest({ query, queryParams });
   return rows[0];
 };
@@ -116,23 +91,22 @@ const findStudentToSetStatus = async ({ userId, reviewerId, status }) => {
             is_active = $1,
             status_last_reviewed_dt = $2,
             status_last_reviewer_id = $3
-        WHERE id = $4 AND role_id = $5`;
-  const queryParams = [status, now, reviewerId, userId, STUDENT_ROLE_ID];
+        WHERE id = $4
+    `;
+  const queryParams = [status, now, reviewerId, userId];
   const { rowCount } = await processDBRequest({ query, queryParams });
   return rowCount;
 };
 
 const removeStudentById = async (userId) => {
-  const query = `DELETE FROM users WHERE id = $1 AND role_id = $2`;
-  const queryParams = [userId, STUDENT_ROLE_ID];
+  const query = "DELETE FROM users WHERE id = $1";
+  const queryParams = [userId];
   const { rowCount } = await processDBRequest({ query, queryParams });
   return rowCount;
 };
 
 module.exports = {
-  STUDENT_ROLE_ID,
   getRoleId,
-  findStudentById,
   findAllStudents,
   addOrUpdateStudent,
   findStudentDetail,

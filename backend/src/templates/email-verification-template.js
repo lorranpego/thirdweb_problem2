@@ -1,6 +1,5 @@
 const emailVerificationTemplate = (link) => {
-    return (
-        `
+  return `
         <html>
             <head>
                 <style>
@@ -29,8 +28,7 @@ const emailVerificationTemplate = (link) => {
                 <a href=${link}>${link}</a>
             </body>
         </html>
-        `
-    );
-}
+        `;
+};
 
 module.exports = { emailVerificationTemplate };

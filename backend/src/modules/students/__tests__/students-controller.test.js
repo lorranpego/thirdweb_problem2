@@ -33,7 +33,7 @@ const run = (handler, req) =>
     const next = (err) => (err ? reject(err) : resolve({ status: "next" }));
     const p = handler(req, res, next);
     if (p && typeof p.then === "function") {
-      return p.then(() => {}).catch(reject);
+      p.catch(reject);
     }
   });
 
@@ -42,93 +42,74 @@ describe("students-controller", () => {
     jest.clearAllMocks();
   });
 
-  it("GET all maps class query alias to className", async () => {
+  it("maps GET students query and returns wrapped response", async () => {
     getAllStudents.mockResolvedValue([{ id: 1 }]);
-
-    const { body } = await run(handleGetAllStudents, {
-      query: { class: "10", section: "A" },
+    const result = await run(handleGetAllStudents, {
+      query: { name: "john", class: "10", section: "A", roll: "2" },
     });
-
     expect(getAllStudents).toHaveBeenCalledWith({
-      name: undefined,
+      name: "john",
       className: "10",
       section: "A",
-      roll: undefined,
+      roll: "2",
     });
-    expect(body).toEqual({ students: [{ id: 1 }] });
+    expect(result.body).toEqual({ students: [{ id: 1 }] });
   });
 
-  it("GET all prefers className over class when both provided", async () => {
+  it("prefers className over class in GET query", async () => {
     getAllStudents.mockResolvedValue([]);
-
     await run(handleGetAllStudents, {
-      query: { className: "Z", class: "10" },
+      query: { className: "12", class: "10" },
     });
-
     expect(getAllStudents).toHaveBeenCalledWith(
-      expect.objectContaining({ className: "Z" }),
+      expect.objectContaining({ className: "12" }),
     );
   });
 
-  it("GET detail uses route id", async () => {
-    getStudentDetail.mockResolvedValue({ id: "5" });
-
-    const { body } = await run(handleGetStudentDetail, {
-      params: { id: "5" },
-    });
-
-    expect(getStudentDetail).toHaveBeenCalledWith("5");
-    expect(body).toEqual({ id: "5" });
-  });
-
-  it("POST create forwards body", async () => {
+  it("forwards add payload", async () => {
     addNewStudent.mockResolvedValue({ message: "ok" });
-
-    const { body } = await run(handleAddStudent, {
-      body: { name: "N", email: "n@x.com" },
-    });
-
-    expect(addNewStudent).toHaveBeenCalledWith({ name: "N", email: "n@x.com" });
-    expect(body).toEqual({ message: "ok" });
+    const body = { name: "Alice", email: "alice@demo.com" };
+    const result = await run(handleAddStudent, { body });
+    expect(addNewStudent).toHaveBeenCalledWith(body);
+    expect(result.body).toEqual({ message: "ok" });
   });
 
-  it("PUT update merges userId from params", async () => {
+  it("uses id param on get detail", async () => {
+    getStudentDetail.mockResolvedValue({ id: "5" });
+    const result = await run(handleGetStudentDetail, { params: { id: "5" } });
+    expect(getStudentDetail).toHaveBeenCalledWith("5");
+    expect(result.body).toEqual({ id: "5" });
+  });
+
+  it("merges id into update payload", async () => {
     updateStudent.mockResolvedValue({ message: "updated" });
-
-    const { body } = await run(handleUpdateStudent, {
+    const result = await run(handleUpdateStudent, {
       params: { id: "7" },
-      body: { name: "X" },
+      body: { name: "Bob" },
     });
-
-    expect(updateStudent).toHaveBeenCalledWith({ name: "X", userId: "7" });
-    expect(body).toEqual({ message: "updated" });
+    expect(updateStudent).toHaveBeenCalledWith({ name: "Bob", userId: "7" });
+    expect(result.body).toEqual({ message: "updated" });
   });
 
-  it("POST status merges userId and reviewerId", async () => {
-    setStudentStatus.mockResolvedValue({ message: "status ok" });
-
-    const { body } = await run(handleStudentStatus, {
+  it("merges user and status payload for status endpoint", async () => {
+    setStudentStatus.mockResolvedValue({ message: "status updated" });
+    const result = await run(handleStudentStatus, {
       params: { id: "4" },
-      body: { status: true },
+      body: { status: false },
       user: { id: "admin-1" },
     });
-
     expect(setStudentStatus).toHaveBeenCalledWith({
-      status: true,
+      status: false,
       userId: "4",
       reviewerId: "admin-1",
     });
-    expect(body).toEqual({ message: "status ok" });
+    expect(result.body).toEqual({ message: "status updated" });
   });
 
-  it("DELETE forwards userId from params", async () => {
-    deleteStudent.mockResolvedValue({ message: "gone" });
-
-    const { body } = await run(handleDeleteStudent, {
-      params: { id: "8" },
-    });
-
+  it("forwards id for delete endpoint", async () => {
+    deleteStudent.mockResolvedValue({ message: "deleted" });
+    const result = await run(handleDeleteStudent, { params: { id: "8" } });
     expect(deleteStudent).toHaveBeenCalledWith({ userId: "8" });
-    expect(body).toEqual({ message: "gone" });
+    expect(result.body).toEqual({ message: "deleted" });
   });
 });

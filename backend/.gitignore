@@ -4,3 +4,5 @@ npm-debug.log
 .git
 dist
 .idea
+.DS_Store
+coverage/

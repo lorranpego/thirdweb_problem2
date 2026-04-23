@@ -20,13 +20,15 @@ const handleGetAllStudents = asyncHandler(async (req, res) => {
 });
 
 const handleAddStudent = asyncHandler(async (req, res) => {
-  const message = await addNewStudent(req.body);
+  const payload = req.body;
+  const message = await addNewStudent(payload);
   res.json(message);
 });
 
 const handleUpdateStudent = asyncHandler(async (req, res) => {
   const { id: userId } = req.params;
-  const message = await updateStudent({ ...req.body, userId });
+  const payload = req.body;
+  const message = await updateStudent({ ...payload, userId });
   res.json(message);
 });
 
@@ -37,9 +39,10 @@ const handleGetStudentDetail = asyncHandler(async (req, res) => {
 });
 
 const handleStudentStatus = asyncHandler(async (req, res) => {
+  const payload = req.body;
   const { id: userId } = req.params;
   const { id: reviewerId } = req.user;
-  const message = await setStudentStatus({ ...req.body, userId, reviewerId });
+  const message = await setStudentStatus({ ...payload, userId, reviewerId });
   res.json(message);
 });
 
