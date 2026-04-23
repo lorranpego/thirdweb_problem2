@@ -1,15 +1,27 @@
 const { processDBRequest } = require("../../utils");
 
+const STUDENT_ROLE_ID = 3;
+
 const getRoleId = async (roleName) => {
-    const query = "SELECT id FROM roles WHERE name ILIKE $1";
-    const queryParams = [roleName];
-    const { rows } = await processDBRequest({ query, queryParams });
-    return rows[0].id;
-}
+  const query = "SELECT id FROM roles WHERE name ILIKE $1";
+  const queryParams = [roleName];
+  const { rows } = await processDBRequest({ query, queryParams });
+  return rows[0]?.id;
+};
+
+const findStudentById = async (id) => {
+  const query = `
+        SELECT u.id, u.email, u.name, u.role_id, u.is_active AS "isActive"
+        FROM users u
+        WHERE u.id = $1 AND u.role_id = $2`;
+  const queryParams = [id, STUDENT_ROLE_ID];
+  const { rows } = await processDBRequest({ query, queryParams });
+  return rows[0];
+};
 
 const findAllStudents = async (payload) => {
-    const { name, className, section, roll } = payload;
-    let query = `
+  const { name, className, section, roll } = payload;
+  let query = `
         SELECT
             t1.id,
             t1.name,
@@ -18,40 +30,53 @@ const findAllStudents = async (payload) => {
             t1.is_active AS "systemAccess"
         FROM users t1
         LEFT JOIN user_profiles t3 ON t1.id = t3.user_id
-        WHERE t1.role_id = 3`;
-    let queryParams = [];
-    if (name) {
-        query += ` AND t1.name = $${queryParams.length + 1}`;
-        queryParams.push(name);
-    }
-    if (className) {
-        query += ` AND t3.class_name = $${queryParams.length + 1}`;
-        queryParams.push(className);
-    }
-    if (section) {
-        query += ` AND t3.section_name = $${queryParams.length + 1}`;
-        queryParams.push(section);
-    }
-    if (roll) {
-        query += ` AND t3.roll = $${queryParams.length + 1}`;
-        queryParams.push(roll);
-    }
+        WHERE t1.role_id = ${STUDENT_ROLE_ID}`;
+  const queryParams = [];
+  if (name) {
+    query += ` AND t1.name ILIKE $${queryParams.length + 1}`;
+    queryParams.push(`%${name}%`);
+  }
+  if (className) {
+    query += ` AND t3.class_name = $${queryParams.length + 1}`;
+    queryParams.push(className);
+  }
+  if (section) {
+    query += ` AND t3.section_name = $${queryParams.length + 1}`;
+    queryParams.push(section);
+  }
+  if (roll !== undefined && roll !== null && roll !== "") {
+    query += ` AND t3.roll::text = $${queryParams.length + 1}`;
+    queryParams.push(String(roll));
+  }
 
-    query += ' ORDER BY t1.id';
+  query += " ORDER BY t1.id";
 
-    const { rows } = await processDBRequest({ query, queryParams });
-    return rows;
-}
+  const { rows } = await processDBRequest({ query, queryParams });
+  return rows;
+};
 
 const addOrUpdateStudent = async (payload) => {
-    const query = "SELECT * FROM student_add_update($1)";
-    const queryParams = [payload];
-    const { rows } = await processDBRequest({ query, queryParams });
-    return rows[0];
-}
+  const query = "SELECT * FROM student_add_update($1::jsonb)";
+  const queryParams = [JSON.stringify(payload)];
+  const { rows } = await processDBRequest({ query, queryParams });
+  const row = rows[0];
+  if (!row) {
+    return {
+      userId: null,
+      status: false,
+      message: "Empty result from student_add_update",
+    };
+  }
+  return {
+    userId: row.userId ?? row.userid,
+    status: row.status,
+    message: row.message,
+    description: row.description,
+  };
+};
 
 const findStudentDetail = async (id) => {
-    const query = `
+  const query = `
         SELECT
             u.id,
             u.name,
@@ -69,53 +94,48 @@ const findStudentDetail = async (id) => {
             p.mother_phone AS "motherPhone",
             p.guardian_name AS "guardianName",
             p.guardian_phone AS "guardianPhone",
-            p.relation_of_guardian as "relationOfGuardian",
+            p.relation_of_guardian AS "relationOfGuardian",
             p.current_address AS "currentAddress",
             p.permanent_address AS "permanentAddress",
             p.admission_dt AS "admissionDate",
-            r.name as "reporterName"
+            r.name AS "reporterName"
         FROM users u
         LEFT JOIN user_profiles p ON u.id = p.user_id
         LEFT JOIN users r ON u.reporter_id = r.id
-        WHERE u.id = $1`;
-    const queryParams = [id];
-    const { rows } = await processDBRequest({ query, queryParams });
-    return rows[0];
-}
+        WHERE u.id = $1 AND u.role_id = $2`;
+  const queryParams = [id, STUDENT_ROLE_ID];
+  const { rows } = await processDBRequest({ query, queryParams });
+  return rows[0];
+};
 
 const findStudentToSetStatus = async ({ userId, reviewerId, status }) => {
-    const now = new Date();
-    const query = `
+  const now = new Date();
+  const query = `
         UPDATE users
         SET
             is_active = $1,
             status_last_reviewed_dt = $2,
             status_last_reviewer_id = $3
-        WHERE id = $4
-    `;
-    const queryParams = [status, now, reviewerId, userId];
-    const { rowCount } = await processDBRequest({ query, queryParams });
-    return rowCount
-}
+        WHERE id = $4 AND role_id = $5`;
+  const queryParams = [status, now, reviewerId, userId, STUDENT_ROLE_ID];
+  const { rowCount } = await processDBRequest({ query, queryParams });
+  return rowCount;
+};
 
-const findStudentToUpdate = async (paylaod) => {
-    const { basicDetails: { name, email }, id } = paylaod;
-    const currentDate = new Date();
-    const query = `
-        UPDATE users
-        SET name = $1, email = $2, updated_dt = $3
-        WHERE id = $4;
-    `;
-    const queryParams = [name, email, currentDate, id];
-    const { rows } = await processDBRequest({ query, queryParams });
-    return rows;
-}
+const removeStudentById = async (userId) => {
+  const query = `DELETE FROM users WHERE id = $1 AND role_id = $2`;
+  const queryParams = [userId, STUDENT_ROLE_ID];
+  const { rowCount } = await processDBRequest({ query, queryParams });
+  return rowCount;
+};
 
 module.exports = {
-    getRoleId,
-    findAllStudents,
-    addOrUpdateStudent,
-    findStudentDetail,
-    findStudentToSetStatus,
-    findStudentToUpdate
+  STUDENT_ROLE_ID,
+  getRoleId,
+  findStudentById,
+  findAllStudents,
+  addOrUpdateStudent,
+  findStudentDetail,
+  findStudentToSetStatus,
+  removeStudentById,
 };
